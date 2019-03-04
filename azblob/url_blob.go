@@ -214,3 +214,18 @@ func (b BlobURL) StartCopyFromURL(ctx context.Context, source url.URL, metadata 
 func (b BlobURL) AbortCopyFromURL(ctx context.Context, copyID string, ac LeaseAccessConditions) (*BlobAbortCopyFromURLResponse, error) {
 	return b.blobClient.AbortCopyFromURL(ctx, copyID, nil, ac.pointers(), nil)
 }
+
+// SyncCopyFromURL copies the data at the source URL to a blob and waits for the copy to complete before returning a response.
+// TODO: Add document reference.
+func (b BlobURL) SyncCopyFromURL(ctx context.Context, source url.URL, metadata Metadata, srcac ModifiedAccessConditions, dstac BlobAccessConditions) (*BlobCopyFromURLResponse, error) {
+	srcIfModifiedSince, srcIfUnmodifiedSince, srcIfMatchETag, srcIfNoneMatchETag := srcac.pointers()
+	dstIfModifiedSince, dstIfUnmodifiedSince, dstIfMatchETag, dstIfNoneMatchETag := dstac.ModifiedAccessConditions.pointers()
+	dstLeaseID := dstac.LeaseAccessConditions.pointers()
+
+	return b.blobClient.CopyFromURL(ctx, source.String(), nil, metadata,
+		srcIfModifiedSince, srcIfUnmodifiedSince,
+		srcIfMatchETag, srcIfNoneMatchETag,
+		dstIfModifiedSince, dstIfUnmodifiedSince,
+		dstIfMatchETag, dstIfNoneMatchETag,
+		dstLeaseID, nil)
+}

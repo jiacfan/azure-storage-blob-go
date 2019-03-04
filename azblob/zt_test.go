@@ -312,3 +312,33 @@ func validateUpload(c *chk.C, blobURL azblob.BlockBlobURL) {
 	data, _ := ioutil.ReadAll(resp.Response().Body)
 	c.Assert(data, chk.HasLen, 0)
 }
+
+func getRawBlobURLWithSAS(c *chk.C, containerName string, blobName string) url.URL {
+	credential, err := getGenericCredential("")
+	c.Assert(err, chk.IsNil)
+	containerURLWithSAS := getContainerURLWithSAS(c, *credential, containerName)
+	blobURLWithSAS := containerURLWithSAS.NewBlockBlobURL(blobName)
+	return blobURLWithSAS.URL()
+}
+
+func getContainerURLWithSAS(c *chk.C, credential azblob.SharedKeyCredential, containerName string) azblob.ContainerURL {
+	sasQueryParams, err := azblob.BlobSASSignatureValues{
+		Protocol:      azblob.SASProtocolHTTPS,
+		ExpiryTime:    time.Now().UTC().Add(48 * time.Hour),
+		ContainerName: containerName,
+		Permissions:   azblob.ContainerSASPermissions{Read: true, Add: true, Write: true, Create: true, Delete: true, List: true}.String(),
+		Version:       "2018-03-28",
+	}.NewSASQueryParameters(&credential)
+	c.Assert(err, chk.IsNil)
+
+	// construct the url from scratch
+	qp := sasQueryParams.Encode()
+	rawURL := fmt.Sprintf("https://%s.blob.core.windows.net/%s?%s",
+		credential.AccountName(), containerName, qp)
+
+	// convert the raw url and validate it was parsed successfully
+	fullURL, err := url.Parse(rawURL)
+	c.Assert(err, chk.IsNil)
+
+	return azblob.NewContainerURL(*fullURL, azblob.NewPipeline(azblob.NewAnonymousCredential(), azblob.PipelineOptions{}))
+}

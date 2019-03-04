@@ -632,6 +632,21 @@ func PossibleStorageErrorCodeTypeValues() []StorageErrorCodeType {
 	return []StorageErrorCodeType{StorageErrorCodeAccountAlreadyExists, StorageErrorCodeAccountBeingCreated, StorageErrorCodeAccountIsDisabled, StorageErrorCodeAppendPositionConditionNotMet, StorageErrorCodeAuthenticationFailed, StorageErrorCodeBlobAlreadyExists, StorageErrorCodeBlobArchived, StorageErrorCodeBlobBeingRehydrated, StorageErrorCodeBlobNotArchived, StorageErrorCodeBlobNotFound, StorageErrorCodeBlobOverwritten, StorageErrorCodeBlobTierInadequateForContentLength, StorageErrorCodeBlockCountExceedsLimit, StorageErrorCodeBlockListTooLong, StorageErrorCodeCannotChangeToLowerTier, StorageErrorCodeCannotVerifyCopySource, StorageErrorCodeConditionHeadersNotSupported, StorageErrorCodeConditionNotMet, StorageErrorCodeContainerAlreadyExists, StorageErrorCodeContainerBeingDeleted, StorageErrorCodeContainerDisabled, StorageErrorCodeContainerNotFound, StorageErrorCodeContentLengthLargerThanTierLimit, StorageErrorCodeCopyAcrossAccountsNotSupported, StorageErrorCodeCopyIDMismatch, StorageErrorCodeEmptyMetadataKey, StorageErrorCodeFeatureVersionMismatch, StorageErrorCodeIncrementalCopyBlobMismatch, StorageErrorCodeIncrementalCopyOfEralierVersionSnapshotNotAllowed, StorageErrorCodeIncrementalCopySourceMustBeSnapshot, StorageErrorCodeInfiniteLeaseDurationRequired, StorageErrorCodeInsufficientAccountPermissions, StorageErrorCodeInternalError, StorageErrorCodeInvalidAuthenticationInfo, StorageErrorCodeInvalidBlobOrBlock, StorageErrorCodeInvalidBlobTier, StorageErrorCodeInvalidBlobType, StorageErrorCodeInvalidBlockID, StorageErrorCodeInvalidBlockList, StorageErrorCodeInvalidHeaderValue, StorageErrorCodeInvalidHTTPVerb, StorageErrorCodeInvalidInput, StorageErrorCodeInvalidMd5, StorageErrorCodeInvalidMetadata, StorageErrorCodeInvalidOperation, StorageErrorCodeInvalidPageRange, StorageErrorCodeInvalidQueryParameterValue, StorageErrorCodeInvalidRange, StorageErrorCodeInvalidResourceName, StorageErrorCodeInvalidSourceBlobType, StorageErrorCodeInvalidSourceBlobURL, StorageErrorCodeInvalidURI, StorageErrorCodeInvalidVersionForPageBlobOperation, StorageErrorCodeInvalidXMLDocument, StorageErrorCodeInvalidXMLNodeValue, StorageErrorCodeLeaseAlreadyBroken, StorageErrorCodeLeaseAlreadyPresent, StorageErrorCodeLeaseIDMismatchWithBlobOperation, StorageErrorCodeLeaseIDMismatchWithContainerOperation, StorageErrorCodeLeaseIDMismatchWithLeaseOperation, StorageErrorCodeLeaseIDMissing, StorageErrorCodeLeaseIsBreakingAndCannotBeAcquired, StorageErrorCodeLeaseIsBreakingAndCannotBeChanged, StorageErrorCodeLeaseIsBrokenAndCannotBeRenewed, StorageErrorCodeLeaseLost, StorageErrorCodeLeaseNotPresentWithBlobOperation, StorageErrorCodeLeaseNotPresentWithContainerOperation, StorageErrorCodeLeaseNotPresentWithLeaseOperation, StorageErrorCodeMaxBlobSizeConditionNotMet, StorageErrorCodeMd5Mismatch, StorageErrorCodeMetadataTooLarge, StorageErrorCodeMissingContentLengthHeader, StorageErrorCodeMissingRequiredHeader, StorageErrorCodeMissingRequiredQueryParameter, StorageErrorCodeMissingRequiredXMLNode, StorageErrorCodeMultipleConditionHeadersNotSupported, StorageErrorCodeNone, StorageErrorCodeNoPendingCopyOperation, StorageErrorCodeOperationNotAllowedOnIncrementalCopyBlob, StorageErrorCodeOperationTimedOut, StorageErrorCodeOutOfRangeInput, StorageErrorCodeOutOfRangeQueryParameterValue, StorageErrorCodePendingCopyOperation, StorageErrorCodePreviousSnapshotCannotBeNewer, StorageErrorCodePreviousSnapshotNotFound, StorageErrorCodePreviousSnapshotOperationNotSupported, StorageErrorCodeRequestBodyTooLarge, StorageErrorCodeRequestURLFailedToParse, StorageErrorCodeResourceAlreadyExists, StorageErrorCodeResourceNotFound, StorageErrorCodeResourceTypeMismatch, StorageErrorCodeSequenceNumberConditionNotMet, StorageErrorCodeSequenceNumberIncrementTooLarge, StorageErrorCodeServerBusy, StorageErrorCodeSnaphotOperationRateExceeded, StorageErrorCodeSnapshotCountExceeded, StorageErrorCodeSnapshotsPresent, StorageErrorCodeSourceConditionNotMet, StorageErrorCodeSystemInUse, StorageErrorCodeTargetConditionNotMet, StorageErrorCodeUnauthorizedBlobOverwrite, StorageErrorCodeUnsupportedHeader, StorageErrorCodeUnsupportedHTTPVerb, StorageErrorCodeUnsupportedQueryParameter, StorageErrorCodeUnsupportedXMLNode}
 }
 
+// SyncCopyStatusType enumerates the values for sync copy status type.
+type SyncCopyStatusType string
+
+const (
+	// SyncCopyStatusNone represents an empty SyncCopyStatusType.
+	SyncCopyStatusNone SyncCopyStatusType = ""
+	// SyncCopyStatusSuccess ...
+	SyncCopyStatusSuccess SyncCopyStatusType = "success"
+)
+
+// PossibleSyncCopyStatusTypeValues returns an array of possible values for the SyncCopyStatusType const type.
+func PossibleSyncCopyStatusTypeValues() []SyncCopyStatusType {
+	return []SyncCopyStatusType{SyncCopyStatusNone, SyncCopyStatusSuccess}
+}
+
 // AccessPolicy - An Access policy
 type AccessPolicy struct {
 	// Start - the date-time the policy is active
@@ -1199,6 +1214,82 @@ func (bclr BlobChangeLeaseResponse) RequestID() string {
 // Version returns the value for header x-ms-version.
 func (bclr BlobChangeLeaseResponse) Version() string {
 	return bclr.rawResponse.Header.Get("x-ms-version")
+}
+
+// BlobCopyFromURLResponse ...
+type BlobCopyFromURLResponse struct {
+	rawResponse *http.Response
+}
+
+// Response returns the raw HTTP response object.
+func (bcfur BlobCopyFromURLResponse) Response() *http.Response {
+	return bcfur.rawResponse
+}
+
+// StatusCode returns the HTTP status code of the response, e.g. 200.
+func (bcfur BlobCopyFromURLResponse) StatusCode() int {
+	return bcfur.rawResponse.StatusCode
+}
+
+// Status returns the HTTP status message of the response, e.g. "200 OK".
+func (bcfur BlobCopyFromURLResponse) Status() string {
+	return bcfur.rawResponse.Status
+}
+
+// CopyID returns the value for header x-ms-copy-id.
+func (bcfur BlobCopyFromURLResponse) CopyID() string {
+	return bcfur.rawResponse.Header.Get("x-ms-copy-id")
+}
+
+// CopyStatus returns the value for header x-ms-copy-status.
+func (bcfur BlobCopyFromURLResponse) CopyStatus() SyncCopyStatusType {
+	return SyncCopyStatusType(bcfur.rawResponse.Header.Get("x-ms-copy-status"))
+}
+
+// Date returns the value for header Date.
+func (bcfur BlobCopyFromURLResponse) Date() time.Time {
+	s := bcfur.rawResponse.Header.Get("Date")
+	if s == "" {
+		return time.Time{}
+	}
+	t, err := time.Parse(time.RFC1123, s)
+	if err != nil {
+		t = time.Time{}
+	}
+	return t
+}
+
+// ErrorCode returns the value for header x-ms-error-code.
+func (bcfur BlobCopyFromURLResponse) ErrorCode() string {
+	return bcfur.rawResponse.Header.Get("x-ms-error-code")
+}
+
+// ETag returns the value for header ETag.
+func (bcfur BlobCopyFromURLResponse) ETag() ETag {
+	return ETag(bcfur.rawResponse.Header.Get("ETag"))
+}
+
+// LastModified returns the value for header Last-Modified.
+func (bcfur BlobCopyFromURLResponse) LastModified() time.Time {
+	s := bcfur.rawResponse.Header.Get("Last-Modified")
+	if s == "" {
+		return time.Time{}
+	}
+	t, err := time.Parse(time.RFC1123, s)
+	if err != nil {
+		t = time.Time{}
+	}
+	return t
+}
+
+// RequestID returns the value for header x-ms-request-id.
+func (bcfur BlobCopyFromURLResponse) RequestID() string {
+	return bcfur.rawResponse.Header.Get("x-ms-request-id")
+}
+
+// Version returns the value for header x-ms-version.
+func (bcfur BlobCopyFromURLResponse) Version() string {
+	return bcfur.rawResponse.Header.Get("x-ms-version")
 }
 
 // BlobCreateSnapshotResponse ...

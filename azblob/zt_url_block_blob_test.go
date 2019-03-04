@@ -99,6 +99,7 @@ func (b *aztestsSuite) TestStageBlockFromURL(c *chk.C) {
 		ContainerName: srcBlobParts.ContainerName,
 		BlobName:      srcBlobParts.BlobName,
 		Permissions:   azblob.BlobSASPermissions{Read: true}.String(),
+		Version:       "2018-03-28",
 	}.NewSASQueryParameters(credential)
 	if err != nil {
 		c.Fatal(err)

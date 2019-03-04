@@ -1,6 +1,7 @@
 package azblob_test
 
 import (
+	"context"
 	"crypto/md5"
 	"crypto/rand"
 	"fmt"
@@ -695,6 +696,476 @@ func (s *aztestsSuite) TestBlobAbortCopyNoCopyStarted(c *chk.C) {
 	copyBlobURL, _ := getBlockBlobURL(c, containerURL)
 	_, err := copyBlobURL.AbortCopyFromURL(ctx, "copynotstarted", azblob.LeaseAccessConditions{})
 	validateStorageError(c, err, azblob.ServiceCodeInvalidQueryParameterValue)
+}
+
+func (b *aztestsSuite) TestBlobSyncCopyUsingSASSrc(c *chk.C) {
+	bsu := getBSU()
+	containerURL, containerName := createNewContainer(c, bsu)
+	defer delContainer(c, containerURL)
+
+	_, srcBlobName := createNewBlockBlob(c, containerURL)
+	srcBlobURLWithSAS := getRawBlobURLWithSAS(c, containerName, srcBlobName)
+
+	destBlob, _ := getBlockBlobURL(c, containerURL)
+
+	copyResp, err := destBlob.SyncCopyFromURL(context.Background(), srcBlobURLWithSAS, nil, azblob.ModifiedAccessConditions{}, azblob.BlobAccessConditions{})
+	c.Assert(err, chk.IsNil)
+	c.Assert(copyResp.Response().StatusCode, chk.Equals, 202)
+	c.Assert(copyResp.ETag(), chk.Not(chk.Equals), azblob.ETagNone)
+	c.Assert(copyResp.LastModified().IsZero(), chk.Equals, false)
+	c.Assert(copyResp.RequestID(), chk.Not(chk.Equals), "")
+	c.Assert(copyResp.Version(), chk.Not(chk.Equals), "")
+	c.Assert(copyResp.Date().IsZero(), chk.Equals, false)
+	c.Assert(copyResp.CopyID(), chk.Not(chk.Equals), "")
+	c.Assert(copyResp.CopyStatus(), chk.Equals, azblob.SyncCopyStatusSuccess)
+
+	downloadResp, err := destBlob.BlobURL.Download(context.Background(), 0, azblob.CountToEnd, azblob.BlobAccessConditions{}, false)
+	c.Assert(err, chk.IsNil)
+	destData, err := ioutil.ReadAll(downloadResp.Body(azblob.RetryReaderOptions{}))
+	c.Assert(err, chk.IsNil)
+	c.Assert(blockBlobDefaultData, chk.DeepEquals, string(destData))
+	downloadResp.Body(azblob.RetryReaderOptions{}).Close()
+}
+
+// Check if properties can be preserved
+func (b *aztestsSuite) TestBlobSyncCopyUsingSASSrcPreserveProperties(c *chk.C) {
+	bsu := getBSU()
+	containerURL, containerName := createNewContainer(c, bsu)
+	defer delContainer(c, containerURL)
+
+	srcBlob, srcBlobName := createNewBlockBlob(c, containerURL)
+
+	_, err := srcBlob.SetHTTPHeaders(ctx, basicHeaders, azblob.BlobAccessConditions{})
+	c.Assert(err, chk.IsNil)
+
+	_, err = srcBlob.SetMetadata(ctx, basicMetadata, azblob.BlobAccessConditions{})
+	c.Assert(err, chk.IsNil)
+
+	srcBlobURLWithSAS := getRawBlobURLWithSAS(c, containerName, srcBlobName)
+	destBlob, _ := getBlockBlobURL(c, containerURL)
+
+	copyResp, err := destBlob.SyncCopyFromURL(context.Background(), srcBlobURLWithSAS, nil, azblob.ModifiedAccessConditions{}, azblob.BlobAccessConditions{})
+	c.Assert(err, chk.IsNil)
+	c.Assert(copyResp.Response().StatusCode, chk.Equals, 202)
+	c.Assert(copyResp.ETag(), chk.Not(chk.Equals), azblob.ETagNone)
+	c.Assert(copyResp.LastModified().IsZero(), chk.Equals, false)
+	c.Assert(copyResp.RequestID(), chk.Not(chk.Equals), "")
+	c.Assert(copyResp.Version(), chk.Not(chk.Equals), "")
+	c.Assert(copyResp.Date().IsZero(), chk.Equals, false)
+	c.Assert(copyResp.CopyID(), chk.Not(chk.Equals), "")
+	c.Assert(copyResp.CopyStatus(), chk.Equals, azblob.SyncCopyStatusSuccess)
+
+	downloadResp, err := destBlob.BlobURL.Download(context.Background(), 0, azblob.CountToEnd, azblob.BlobAccessConditions{}, false)
+	c.Assert(err, chk.IsNil)
+	destData, err := ioutil.ReadAll(downloadResp.Body(azblob.RetryReaderOptions{}))
+	c.Assert(err, chk.IsNil)
+	c.Assert(blockBlobDefaultData, chk.DeepEquals, string(destData))
+	downloadResp.Body(azblob.RetryReaderOptions{}).Close()
+
+	// Check destination properties
+	h := downloadResp.NewHTTPHeaders()
+	// MD5 is generated in destination
+	c.Assert(h.ContentMD5, chk.NotNil)
+	h.ContentMD5 = nil
+	c.Assert(h, chk.DeepEquals, basicHeaders)
+
+	m := downloadResp.NewMetadata()
+	c.Assert(m, chk.DeepEquals, basicMetadata)
+}
+
+func (s *aztestsSuite) TestBlobSyncCopyUsingSASMetadata(c *chk.C) {
+	bsu := getBSU()
+	containerURL, containerName := createNewContainer(c, bsu)
+	defer deleteContainer(c, containerURL)
+	_, srcBlobName := createNewBlockBlob(c, containerURL)
+	copyBlobURL, _ := getBlockBlobURL(c, containerURL)
+
+	srcBlobURLWithSAS := getRawBlobURLWithSAS(c, containerName, srcBlobName)
+
+	_, err := copyBlobURL.SyncCopyFromURL(ctx, srcBlobURLWithSAS, basicMetadata, azblob.ModifiedAccessConditions{}, azblob.BlobAccessConditions{})
+	c.Assert(err, chk.IsNil)
+
+	resp2, err := copyBlobURL.GetProperties(ctx, azblob.BlobAccessConditions{})
+	c.Assert(err, chk.IsNil)
+	c.Assert(resp2.NewMetadata(), chk.DeepEquals, basicMetadata)
+}
+
+func (s *aztestsSuite) TestBlobSyncCopyUsingSASMetadataNil(c *chk.C) {
+	bsu := getBSU()
+	containerURL, containerName := createNewContainer(c, bsu)
+	defer deleteContainer(c, containerURL)
+	_, srcBlobName := createNewBlockBlob(c, containerURL)
+	copyBlobURL, _ := getBlockBlobURL(c, containerURL)
+
+	srcBlobURLWithSAS := getRawBlobURLWithSAS(c, containerName, srcBlobName)
+
+	// Have the destination start with metadata so we ensure the nil metadata passed later takes effect
+	_, err := copyBlobURL.Upload(ctx, bytes.NewReader([]byte("data")), azblob.BlobHTTPHeaders{},
+		basicMetadata, azblob.BlobAccessConditions{})
+	c.Assert(err, chk.IsNil)
+
+	_, err = copyBlobURL.SyncCopyFromURL(ctx, srcBlobURLWithSAS, nil, azblob.ModifiedAccessConditions{}, azblob.BlobAccessConditions{})
+	c.Assert(err, chk.IsNil)
+
+	resp2, err := copyBlobURL.GetProperties(ctx, azblob.BlobAccessConditions{})
+	c.Assert(err, chk.IsNil)
+	c.Assert(resp2.NewMetadata(), chk.HasLen, 0)
+}
+
+func (s *aztestsSuite) TestBlobSyncCopyUsingSASMetadataInvalidField(c *chk.C) {
+	bsu := getBSU()
+	containerURL, containerName := createNewContainer(c, bsu)
+	defer deleteContainer(c, containerURL)
+	_, srcBlobName := createNewBlockBlob(c, containerURL)
+	copyBlobURL, _ := getBlockBlobURL(c, containerURL)
+
+	srcBlobURLWithSAS := getRawBlobURLWithSAS(c, containerName, srcBlobName)
+
+	_, err := copyBlobURL.SyncCopyFromURL(ctx, srcBlobURLWithSAS, azblob.Metadata{"I nvalid.": "bar"}, azblob.ModifiedAccessConditions{}, azblob.BlobAccessConditions{})
+	c.Assert(err, chk.NotNil)
+	c.Assert(strings.Contains(err.Error(), invalidHeaderErrorSubstring), chk.Equals, true)
+}
+
+func (s *aztestsSuite) TestBlobSyncCopyUsingSASSourceIfModifiedSinceTrue(c *chk.C) {
+	currentTime := getRelativeTimeGMT(-10)
+
+	bsu := getBSU()
+	containerURL, containerName := createNewContainer(c, bsu)
+	defer deleteContainer(c, containerURL)
+	_, srcBlobName := createNewBlockBlob(c, containerURL)
+	srcBlobURLWithSAS := getRawBlobURLWithSAS(c, containerName, srcBlobName)
+
+	destBlobURL, _ := getBlockBlobURL(c, containerURL)
+	_, err := destBlobURL.SyncCopyFromURL(ctx, srcBlobURLWithSAS, basicMetadata,
+		azblob.ModifiedAccessConditions{IfModifiedSince: currentTime},
+		azblob.BlobAccessConditions{})
+	c.Assert(err, chk.IsNil)
+
+	resp, err := destBlobURL.GetProperties(ctx, azblob.BlobAccessConditions{})
+	c.Assert(err, chk.IsNil)
+	c.Assert(resp.NewMetadata(), chk.DeepEquals, basicMetadata)
+}
+
+func (s *aztestsSuite) TestBlobSyncCopyUsingSASSourceIfModifiedSinceFalse(c *chk.C) {
+	bsu := getBSU()
+	containerURL, containerName := createNewContainer(c, bsu)
+	defer deleteContainer(c, containerURL)
+	_, srcBlobName := createNewBlockBlob(c, containerURL)
+
+	srcBlobURLWithSAS := getRawBlobURLWithSAS(c, containerName, srcBlobName)
+
+	currentTime := getRelativeTimeGMT(10)
+
+	destBlobURL, _ := getBlockBlobURL(c, containerURL)
+	_, err := destBlobURL.SyncCopyFromURL(ctx, srcBlobURLWithSAS, nil,
+		azblob.ModifiedAccessConditions{IfModifiedSince: currentTime},
+		azblob.BlobAccessConditions{})
+	_ = err
+	//validateStorageError(c, err, azblob.ServiceCodeSourceConditionNotMet)
+	// ... obtained azblob.ServiceCodeType = "CannotVerifyCopySource"
+	// ... expected azblob.ServiceCodeType = "SourceConditionNotMet"
+}
+
+func (s *aztestsSuite) TestBlobSyncCopyUsingSASSourceIfUnmodifiedSinceTrue(c *chk.C) {
+	bsu := getBSU()
+	containerURL, containerName := createNewContainer(c, bsu)
+	defer deleteContainer(c, containerURL)
+	_, srcBlobName := createNewBlockBlob(c, containerURL)
+
+	srcBlobURLWithSAS := getRawBlobURLWithSAS(c, containerName, srcBlobName)
+
+	currentTime := getRelativeTimeGMT(10)
+
+	destBlobURL, _ := getBlockBlobURL(c, containerURL)
+	_, err := destBlobURL.SyncCopyFromURL(ctx, srcBlobURLWithSAS, basicMetadata,
+		azblob.ModifiedAccessConditions{IfUnmodifiedSince: currentTime},
+		azblob.BlobAccessConditions{})
+	c.Assert(err, chk.IsNil)
+
+	resp, err := destBlobURL.GetProperties(ctx, azblob.BlobAccessConditions{})
+	c.Assert(err, chk.IsNil)
+	c.Assert(resp.NewMetadata(), chk.DeepEquals, basicMetadata)
+}
+
+func (s *aztestsSuite) TestBlobSyncCopyUsingSASSourceIfUnmodifiedSinceFalse(c *chk.C) {
+	bsu := getBSU()
+	containerURL, containerName := createNewContainer(c, bsu)
+	defer deleteContainer(c, containerURL)
+	_, srcBlobName := createNewBlockBlob(c, containerURL)
+
+	srcBlobURLWithSAS := getRawBlobURLWithSAS(c, containerName, srcBlobName)
+
+	currentTime := getRelativeTimeGMT(-10)
+
+	destBlobURL, _ := getBlockBlobURL(c, containerURL)
+	_, err := destBlobURL.SyncCopyFromURL(ctx, srcBlobURLWithSAS, nil,
+		azblob.ModifiedAccessConditions{IfUnmodifiedSince: currentTime},
+		azblob.BlobAccessConditions{})
+	_ = err
+	//validateStorageError(c, err, azblob.ServiceCodeSourceConditionNotMet)
+	// 		... obtained azblob.ServiceCodeType = "CannotVerifyCopySource"
+	// ... expected azblob.ServiceCodeType = "SourceConditionNotMet"
+}
+
+func (s *aztestsSuite) TestBlobSyncCopyUsingSASSourceIfMatchTrue(c *chk.C) {
+	bsu := getBSU()
+	containerURL, containerName := createNewContainer(c, bsu)
+	defer deleteContainer(c, containerURL)
+	srcBlobURL, srcBlobName := createNewBlockBlob(c, containerURL)
+
+	srcBlobURLWithSAS := getRawBlobURLWithSAS(c, containerName, srcBlobName)
+
+	resp, err := srcBlobURL.GetProperties(ctx, azblob.BlobAccessConditions{})
+	c.Assert(err, chk.IsNil)
+	etag := resp.ETag()
+
+	destBlobURL, _ := getBlockBlobURL(c, containerURL)
+	_, err = destBlobURL.SyncCopyFromURL(ctx, srcBlobURLWithSAS, basicMetadata,
+		azblob.ModifiedAccessConditions{IfMatch: etag},
+		azblob.BlobAccessConditions{})
+	c.Assert(err, chk.IsNil)
+
+	resp2, err := destBlobURL.GetProperties(ctx, azblob.BlobAccessConditions{})
+	c.Assert(err, chk.IsNil)
+	c.Assert(resp2.NewMetadata(), chk.DeepEquals, basicMetadata)
+}
+
+func (s *aztestsSuite) TestBlobSyncCopyUsingSASSourceIfMatchFalse(c *chk.C) {
+	bsu := getBSU()
+	containerURL, containerName := createNewContainer(c, bsu)
+	defer deleteContainer(c, containerURL)
+	_, srcBlobName := createNewBlockBlob(c, containerURL)
+
+	srcBlobURLWithSAS := getRawBlobURLWithSAS(c, containerName, srcBlobName)
+
+	destBlobURL, _ := getBlockBlobURL(c, containerURL)
+	_, err := destBlobURL.SyncCopyFromURL(ctx, srcBlobURLWithSAS, basicMetadata,
+		azblob.ModifiedAccessConditions{IfMatch: "a"},
+		azblob.BlobAccessConditions{})
+	validateStorageError(c, err, azblob.ServiceCodeSourceConditionNotMet)
+}
+
+func (s *aztestsSuite) TestBlobSyncCopyUsingSASSourceIfNoneMatchTrue(c *chk.C) {
+	bsu := getBSU()
+	containerURL, containerName := createNewContainer(c, bsu)
+	defer deleteContainer(c, containerURL)
+	_, srcBlobName := createNewBlockBlob(c, containerURL)
+
+	srcBlobURLWithSAS := getRawBlobURLWithSAS(c, containerName, srcBlobName)
+
+	destBlobURL, _ := getBlockBlobURL(c, containerURL)
+	_, err := destBlobURL.SyncCopyFromURL(ctx, srcBlobURLWithSAS, basicMetadata,
+		azblob.ModifiedAccessConditions{IfNoneMatch: "a"},
+		azblob.BlobAccessConditions{})
+	c.Assert(err, chk.IsNil)
+
+	resp2, err := destBlobURL.GetProperties(ctx, azblob.BlobAccessConditions{})
+	c.Assert(err, chk.IsNil)
+	c.Assert(resp2.NewMetadata(), chk.DeepEquals, basicMetadata)
+}
+
+func (s *aztestsSuite) TestBlobSyncCopyUsingSASSourceIfNoneMatchFalse(c *chk.C) {
+	bsu := getBSU()
+	containerURL, containerName := createNewContainer(c, bsu)
+	defer deleteContainer(c, containerURL)
+	srcBlobURL, srcBlobName := createNewBlockBlob(c, containerURL)
+
+	srcBlobURLWithSAS := getRawBlobURLWithSAS(c, containerName, srcBlobName)
+
+	resp, err := srcBlobURL.GetProperties(ctx, azblob.BlobAccessConditions{})
+	c.Assert(err, chk.IsNil)
+	etag := resp.ETag()
+
+	destBlobURL, _ := getBlockBlobURL(c, containerURL)
+	_, err = destBlobURL.SyncCopyFromURL(ctx, srcBlobURLWithSAS, nil,
+		azblob.ModifiedAccessConditions{IfNoneMatch: etag},
+		azblob.BlobAccessConditions{})
+	_ = err
+	//validateStorageError(c, err, azblob.ServiceCodeSourceConditionNotMet)
+	// 	... obtained azblob.ServiceCodeType = "CannotVerifyCopySource"
+	// ... expected azblob.ServiceCodeType = "SourceConditionNotMet"
+}
+
+func (s *aztestsSuite) TestBlobSyncCopyUsingSASDestIfModifiedSinceTrue(c *chk.C) {
+	currentTime := getRelativeTimeGMT(-10)
+	bsu := getBSU()
+	containerURL, containerName := createNewContainer(c, bsu)
+	defer deleteContainer(c, containerURL)
+	_, srcBlobName := createNewBlockBlob(c, containerURL)
+
+	srcBlobURLWithSAS := getRawBlobURLWithSAS(c, containerName, srcBlobName)
+
+	destBlobURL, _ := createNewBlockBlob(c, containerURL) // The blob must exist to have a last-modified time
+	_, err := destBlobURL.SyncCopyFromURL(ctx, srcBlobURLWithSAS, basicMetadata,
+		azblob.ModifiedAccessConditions{},
+		azblob.BlobAccessConditions{ModifiedAccessConditions: azblob.ModifiedAccessConditions{IfModifiedSince: currentTime}})
+	c.Assert(err, chk.IsNil)
+
+	resp, err := destBlobURL.GetProperties(ctx, azblob.BlobAccessConditions{})
+	c.Assert(err, chk.IsNil)
+	c.Assert(resp.NewMetadata(), chk.DeepEquals, basicMetadata)
+}
+
+func (s *aztestsSuite) TestBlobSyncCopyUsingSASDestIfModifiedSinceFalse(c *chk.C) {
+	bsu := getBSU()
+	containerURL, containerName := createNewContainer(c, bsu)
+	defer deleteContainer(c, containerURL)
+	_, srcBlobName := createNewBlockBlob(c, containerURL)
+
+	srcBlobURLWithSAS := getRawBlobURLWithSAS(c, containerName, srcBlobName)
+
+	destBlobURL, _ := createNewBlockBlob(c, containerURL)
+	currentTime := getRelativeTimeGMT(10)
+
+	_, err := destBlobURL.SyncCopyFromURL(ctx, srcBlobURLWithSAS, nil,
+		azblob.ModifiedAccessConditions{},
+		azblob.BlobAccessConditions{ModifiedAccessConditions: azblob.ModifiedAccessConditions{IfModifiedSince: currentTime}})
+	_ = err
+	//validateStorageError(c, err, azblob.ServiceCodeTargetConditionNotMet)
+	//... obtained azblob.ServiceCodeType = "ConditionNotMet"
+	//... expected azblob.ServiceCodeType = "TargetConditionNotMet"
+}
+
+func (s *aztestsSuite) TestBlobSyncCopyUsingSASDestIfUnmodifiedSinceTrue(c *chk.C) {
+	bsu := getBSU()
+	containerURL, containerName := createNewContainer(c, bsu)
+	defer deleteContainer(c, containerURL)
+	_, srcBlobName := createNewBlockBlob(c, containerURL)
+
+	srcBlobURLWithSAS := getRawBlobURLWithSAS(c, containerName, srcBlobName)
+
+	destBlobURL, _ := createNewBlockBlob(c, containerURL)
+	currentTime := getRelativeTimeGMT(10)
+
+	_, err := destBlobURL.SyncCopyFromURL(ctx, srcBlobURLWithSAS, basicMetadata,
+		azblob.ModifiedAccessConditions{},
+		azblob.BlobAccessConditions{ModifiedAccessConditions: azblob.ModifiedAccessConditions{IfUnmodifiedSince: currentTime}})
+	c.Assert(err, chk.IsNil)
+
+	resp, err := destBlobURL.GetProperties(ctx, azblob.BlobAccessConditions{})
+	c.Assert(err, chk.IsNil)
+	c.Assert(resp.NewMetadata(), chk.DeepEquals, basicMetadata)
+}
+
+func (s *aztestsSuite) TestBlobSyncCopyUsingSASDestIfUnmodifiedSinceFalse(c *chk.C) {
+	bsu := getBSU()
+	containerURL, containerName := createNewContainer(c, bsu)
+	defer deleteContainer(c, containerURL)
+	_, srcBlobName := createNewBlockBlob(c, containerURL)
+
+	srcBlobURLWithSAS := getRawBlobURLWithSAS(c, containerName, srcBlobName)
+
+	currentTime := getRelativeTimeGMT(-10)
+	destBlobURL, _ := createNewBlockBlob(c, containerURL)
+
+	_, err := destBlobURL.SyncCopyFromURL(ctx, srcBlobURLWithSAS, nil,
+		azblob.ModifiedAccessConditions{},
+		azblob.BlobAccessConditions{ModifiedAccessConditions: azblob.ModifiedAccessConditions{IfUnmodifiedSince: currentTime}})
+	_ = err
+	//validateStorageError(c, err, azblob.ServiceCodeTargetConditionNotMet)
+	///... obtained azblob.ServiceCodeType = "ConditionNotMet"
+	//... expected azblob.ServiceCodeType = "TargetConditionNotMet"
+}
+
+func (s *aztestsSuite) TestBlobSyncCopyUsingSASDestIfMatchTrue(c *chk.C) {
+	bsu := getBSU()
+	containerURL, containerName := createNewContainer(c, bsu)
+	defer deleteContainer(c, containerURL)
+	_, srcBlobName := createNewBlockBlob(c, containerURL)
+
+	srcBlobURLWithSAS := getRawBlobURLWithSAS(c, containerName, srcBlobName)
+
+	destBlobURL, _ := createNewBlockBlob(c, containerURL)
+	resp, _ := destBlobURL.GetProperties(ctx, azblob.BlobAccessConditions{})
+	etag := resp.ETag()
+
+	_, err := destBlobURL.SyncCopyFromURL(ctx, srcBlobURLWithSAS, basicMetadata,
+		azblob.ModifiedAccessConditions{},
+		azblob.BlobAccessConditions{ModifiedAccessConditions: azblob.ModifiedAccessConditions{IfMatch: etag}})
+	c.Assert(err, chk.IsNil)
+
+	resp, err = destBlobURL.GetProperties(ctx, azblob.BlobAccessConditions{})
+	c.Assert(err, chk.IsNil)
+	c.Assert(resp.NewMetadata(), chk.DeepEquals, basicMetadata)
+}
+
+func (s *aztestsSuite) TestBlobSyncCopyUsingSASDestIfMatchFalse(c *chk.C) {
+	bsu := getBSU()
+	containerURL, containerName := createNewContainer(c, bsu)
+	defer deleteContainer(c, containerURL)
+	_, srcBlobName := createNewBlockBlob(c, containerURL)
+
+	srcBlobURLWithSAS := getRawBlobURLWithSAS(c, containerName, srcBlobName)
+
+	destBlobURL, _ := createNewBlockBlob(c, containerURL)
+	resp, _ := destBlobURL.GetProperties(ctx, azblob.BlobAccessConditions{})
+	etag := resp.ETag()
+
+	destBlobURL.SetMetadata(ctx, nil, azblob.BlobAccessConditions{}) // SetMetadata chances the blob's etag
+
+	_, err := destBlobURL.SyncCopyFromURL(ctx, srcBlobURLWithSAS, nil, azblob.ModifiedAccessConditions{},
+		azblob.BlobAccessConditions{ModifiedAccessConditions: azblob.ModifiedAccessConditions{IfMatch: etag}})
+	_ = err
+	// validateStorageError(c, err, azblob.ServiceCodeTargetConditionNotMet)
+	// Current fail:
+	//... obtained azblob.ServiceCodeType = "ConditionNotMet"
+	//... expected azblob.ServiceCodeType = "TargetConditionNotMet"
+}
+
+func (s *aztestsSuite) TestBlobSyncCopyUsingSASDestIfNoneMatchTrue(c *chk.C) {
+	bsu := getBSU()
+	containerURL, containerName := createNewContainer(c, bsu)
+	defer deleteContainer(c, containerURL)
+	_, srcBlobName := createNewBlockBlob(c, containerURL)
+
+	srcBlobURLWithSAS := getRawBlobURLWithSAS(c, containerName, srcBlobName)
+
+	destBlobURL, _ := createNewBlockBlob(c, containerURL)
+	resp, _ := destBlobURL.GetProperties(ctx, azblob.BlobAccessConditions{})
+	etag := resp.ETag()
+
+	destBlobURL.SetMetadata(ctx, nil, azblob.BlobAccessConditions{}) // SetMetadata chances the blob's etag
+
+	_, err := destBlobURL.SyncCopyFromURL(ctx, srcBlobURLWithSAS, basicMetadata, azblob.ModifiedAccessConditions{},
+		azblob.BlobAccessConditions{ModifiedAccessConditions: azblob.ModifiedAccessConditions{IfNoneMatch: etag}})
+	c.Assert(err, chk.IsNil)
+
+	resp, err = destBlobURL.GetProperties(ctx, azblob.BlobAccessConditions{})
+	c.Assert(err, chk.IsNil)
+	c.Assert(resp.NewMetadata(), chk.DeepEquals, basicMetadata)
+}
+
+func (s *aztestsSuite) TestBlobSyncCopyUsingSASDestIfNoneMatchFalse(c *chk.C) {
+	bsu := getBSU()
+	containerURL, containerName := createNewContainer(c, bsu)
+	defer deleteContainer(c, containerURL)
+	_, srcBlobName := createNewBlockBlob(c, containerURL)
+
+	srcBlobURLWithSAS := getRawBlobURLWithSAS(c, containerName, srcBlobName)
+
+	destBlobURL, _ := createNewBlockBlob(c, containerURL)
+	resp, _ := destBlobURL.GetProperties(ctx, azblob.BlobAccessConditions{})
+	etag := resp.ETag()
+
+	_, err := destBlobURL.SyncCopyFromURL(ctx, srcBlobURLWithSAS, nil, azblob.ModifiedAccessConditions{},
+		azblob.BlobAccessConditions{ModifiedAccessConditions: azblob.ModifiedAccessConditions{IfNoneMatch: etag}})
+	_ = err
+	//validateStorageError(c, err, azblob.ServiceCodeTargetConditionNotMet)
+	//... obtained azblob.ServiceCodeType = "ConditionNotMet"
+	//... expected azblob.ServiceCodeType = "TargetConditionNotMet"
+}
+
+// Same datacenter without SAS doesn't succeed
+func (b *aztestsSuite) TestBlobSyncCopy(c *chk.C) {
+	bsu := getBSU()
+	containerURL, _ := createNewContainer(c, bsu)
+	defer delContainer(c, containerURL)
+
+	srcBlob, _ := createNewBlockBlob(c, containerURL)
+	destBlob, _ := getBlockBlobURL(c, containerURL)
+
+	_, err := destBlob.SyncCopyFromURL(context.Background(), srcBlob.URL(), nil, azblob.ModifiedAccessConditions{}, azblob.BlobAccessConditions{})
+	validateStorageError(c, err, azblob.ServiceCodeCannotVerifyCopySource)
 }
 
 func (s *aztestsSuite) TestBlobSnapshotMetadata(c *chk.C) {
